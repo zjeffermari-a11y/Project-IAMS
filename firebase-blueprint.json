@@ -1,0 +1,120 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Registered user of the system",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["Director", "Division Chief", "Team Leader", "Auditor", "Auditee"] },
+        "roleVerified": { "type": "boolean" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["name", "role", "roleVerified", "createdAt", "updatedAt"]
+    },
+    "Engagement": {
+      "title": "Audit Engagement",
+      "description": "An audit engagement",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "typeOfAudit": { "type": "string" },
+        "periodStart": { "type": "string" },
+        "periodEnd": { "type": "string" },
+        "teamLeaderId": { "type": "string" },
+        "auditeeId": { "type": "string" },
+        "flowchartUrl": { "type": "string" },
+        "feedbackSurveyUrl": { "type": "string" },
+        "status": { "type": "string" },
+        "memberIds": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["title", "typeOfAudit", "periodStart", "periodEnd", "teamLeaderId", "auditeeId", "status", "createdAt", "updatedAt"]
+    },
+    "EngagementMember": {
+      "title": "Engagement Member",
+      "description": "User role assignment within an engagement",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "engagementRole": { "type": "string", "enum": ["Team Leader", "ATL", "Auditor", "Auditee"] },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["userId", "engagementRole", "createdAt"]
+    },
+    "AwpRow": {
+      "title": "AWP Row",
+      "description": "A dynamic row within the Audit Work Program",
+      "type": "object",
+      "properties": {
+        "section": { "type": "string" },
+        "objective": { "type": "string" },
+        "procedure": { "type": "string" },
+        "reference": { "type": "string" },
+        "status": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["section", "objective", "procedure", "reference", "createdBy", "createdAt", "updatedAt"]
+    },
+    "AwpSignOff": {
+      "title": "AWP Sign-Off",
+      "description": "Record of AWP approval stage",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userRole": { "type": "string" },
+        "stage": { "type": "string", "enum": ["Prepared by", "Reviewed by", "Approved by"] },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["userId", "userName", "userRole", "stage", "timestamp"]
+    },
+    "MovDocument": {
+      "title": "MOV Document",
+      "description": "Management of Verification document entry",
+      "type": "object",
+      "properties": {
+        "documentName": { "type": "string" },
+        "auditorLink": { "type": "string" },
+        "auditeeResponse1": { "type": "string" },
+        "auditeeResponse2": { "type": "string" },
+        "auditeeResponse3": { "type": "string" },
+        "status": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["documentName", "createdBy", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "System users and their roles"
+    },
+    "engagements/{engagementId}": {
+      "schema": { "$ref": "#/entities/Engagement" },
+      "description": "Audit engagements"
+    },
+    "engagements/{engagementId}/members/{userId}": {
+      "schema": { "$ref": "#/entities/EngagementMember" },
+      "description": "Access control records for engagement scoping"
+    },
+    "engagements/{engagementId}/awpRows/{rowId}": {
+      "schema": { "$ref": "#/entities/AwpRow" },
+      "description": "AWP lines within an engagement"
+    },
+    "engagements/{engagementId}/awpSignoffs/{signoffId}": {
+      "schema": { "$ref": "#/entities/AwpSignOff" },
+      "description": "Sign-offs history for AWP"
+    },
+    "engagements/{engagementId}/movs/{movId}": {
+      "schema": { "$ref": "#/entities/MovDocument" },
+      "description": "Management of Verification items within an engagement"
+    }
+  }
+}

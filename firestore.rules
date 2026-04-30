@@ -1,0 +1,158 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} { allow read, write: if false; }
+
+    function isSignedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['name', 'role', 'roleVerified', 'createdAt', 'updatedAt']) &&
+             data.keys().size() == 5 &&
+             data.name is string && data.name.size() <= 200 &&
+             data.role is string && data.role in ["Director", "Division Chief", "Team Leader", "Auditor", "Auditee"] &&
+             data.roleVerified is bool &&
+             data.createdAt is number && data.updatedAt is number;
+    }
+
+    match /users/{userId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId &&
+                    isValidUser(incoming()) && incoming().roleVerified == false &&
+                    incoming().createdAt == request.time.toMillis() && incoming().updatedAt == request.time.toMillis();
+      allow update: if isSignedIn() && isValidId(userId) && isValidUser(incoming()) && 
+                    (
+                      (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedAt']) && incoming().updatedAt == request.time.toMillis())
+                      ||
+                      (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"] && 
+                       incoming().diff(existing()).affectedKeys().hasOnly(['role', 'roleVerified', 'updatedAt']) && incoming().updatedAt == request.time.toMillis())
+                    );
+    }
+
+    // Engagement
+    function isValidEngagement(data) {
+      return data.keys().hasAll(['title', 'typeOfAudit', 'periodStart', 'periodEnd', 'teamLeaderId', 'auditeeId', 'flowchartUrl', 'feedbackSurveyUrl', 'status', 'memberIds', 'createdAt', 'updatedAt']) &&
+             data.keys().size() == 12 &&
+             data.title is string && data.title.size() <= 200 &&
+             data.typeOfAudit is string && data.typeOfAudit.size() <= 100 &&
+             data.periodStart is string && data.periodStart.size() <= 100 &&
+             data.periodEnd is string && data.periodEnd.size() <= 100 &&
+             data.teamLeaderId is string && data.teamLeaderId.size() <= 128 &&
+             data.auditeeId is string && data.auditeeId.size() <= 128 &&
+             data.flowchartUrl is string && data.flowchartUrl.size() <= 2000 &&
+             data.feedbackSurveyUrl is string && data.feedbackSurveyUrl.size() <= 2000 &&
+             data.status is string && data.status.size() <= 100 &&
+             data.memberIds is list && data.memberIds.size() <= 50 &&
+             data.createdAt is number && data.updatedAt is number;
+    }
+
+    match /engagements/{engagementId} {
+      allow get: if isSignedIn() && isValidId(engagementId) && 
+                 (request.auth.uid in existing().memberIds || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"]);
+      allow list: if isSignedIn() && 
+                  (request.auth.uid in resource.data.memberIds); // Directors will have to list all by adding their ID to memberIds initially, or we do a role check? But allow list can't use get(). We'll add Directors to memberIds when created.
+      allow create: if isSignedIn() && isValidId(engagementId) && 
+                    get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"] &&
+                    isValidEngagement(incoming()) && incoming().createdAt == request.time.toMillis() && incoming().updatedAt == request.time.toMillis() &&
+                    request.auth.uid in incoming().memberIds && 
+                    incoming().teamLeaderId in incoming().memberIds;
+      allow update: if isSignedIn() && isValidId(engagementId) && isValidEngagement(incoming()) && incoming().updatedAt == request.time.toMillis() && incoming().createdAt == existing().createdAt &&
+                    (
+                      (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"] && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt', 'memberIds'])) ||
+                      (request.auth.uid == existing().teamLeaderId && incoming().diff(existing()).affectedKeys().hasOnly(['memberIds', 'status', 'flowchartUrl', 'feedbackSurveyUrl', 'updatedAt']))
+                    );
+    }
+
+    match /engagements/{engagementId}/members/{memberId} {
+      function isValidMember(data) {
+        return data.keys().hasAll(['userId', 'engagementRole', 'createdAt']) && data.keys().size() == 3 &&
+               data.userId is string && data.userId.size() <= 128 &&
+               data.engagementRole is string && data.engagementRole in ["Team Leader", "ATL", "Auditor", "Auditee", "Director", "Division Chief"] &&
+               data.createdAt is number;
+      }
+      allow get, list: if isSignedIn() && isValidId(engagementId) && 
+                       (request.auth.uid in get(/databases/$(database)/documents/engagements/$(engagementId)).data.memberIds || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"]);
+      allow create: if isSignedIn() && isValidId(engagementId) && isValidId(memberId) && memberId == incoming().userId &&
+                    isValidMember(incoming()) && incoming().createdAt == request.time.toMillis() &&
+                    (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"] || request.auth.uid == get(/databases/$(database)/documents/engagements/$(engagementId)).data.teamLeaderId);
+      allow update: if false; // immutable role inside engagement, delete and recreate if needed
+      allow delete: if isSignedIn() && isValidId(engagementId) && isValidId(memberId) &&
+                    (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"] || request.auth.uid == get(/databases/$(database)/documents/engagements/$(engagementId)).data.teamLeaderId);
+    }
+
+    match /engagements/{engagementId}/awpRows/{rowId} {
+      function isValidAwpRow(data) {
+        return data.keys().hasAll(['section', 'objective', 'procedure', 'reference', 'status', 'createdBy', 'createdAt', 'updatedAt']) && data.keys().size() == 8 &&
+               data.section is string && data.section.size() <= 200 &&
+               data.objective is string && data.objective.size() <= 2000 &&
+               data.procedure is string && data.procedure.size() <= 2000 &&
+               data.reference is string && data.reference.size() <= 200 &&
+               data.status is string && data.status.size() <= 100 &&
+               data.createdBy is string && data.createdBy.size() <= 128 &&
+               data.createdAt is number && data.updatedAt is number;
+      }
+      allow get, list: if isSignedIn() && isValidId(engagementId) && 
+                       (request.auth.uid in get(/databases/$(database)/documents/engagements/$(engagementId)).data.memberIds || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"]);
+      allow create: if isSignedIn() && isValidId(engagementId) && isValidId(rowId) &&
+                    request.auth.uid == incoming().createdBy &&
+                    isValidAwpRow(incoming()) && incoming().createdAt == request.time.toMillis() && incoming().updatedAt == request.time.toMillis() &&
+                    // Only auditors/TL can create
+                    get(/databases/$(database)/documents/engagements/$(engagementId)/members/$(request.auth.uid)).data.engagementRole in ["Team Leader", "ATL", "Auditor", "Director", "Division Chief"];
+      allow update: if isSignedIn() && isValidId(engagementId) && isValidId(rowId) && isValidAwpRow(incoming()) && incoming().updatedAt == request.time.toMillis() && incoming().createdAt == existing().createdAt &&
+                    get(/databases/$(database)/documents/engagements/$(engagementId)/members/$(request.auth.uid)).data.engagementRole in ["Team Leader", "ATL", "Auditor", "Director", "Division Chief"] &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['section', 'objective', 'procedure', 'reference', 'status', 'updatedAt']);
+    }
+
+    match /engagements/{engagementId}/awpSignoffs/{signoffId} {
+      function isValidSignOff(data) {
+        return data.keys().hasAll(['userId', 'userName', 'userRole', 'stage', 'timestamp']) && data.keys().size() == 5 &&
+               data.userId is string && data.userId.size() <= 128 &&
+               data.userName is string && data.userName.size() <= 200 &&
+               data.userRole is string && data.userRole.size() <= 100 &&
+               data.stage is string && data.stage in ["Prepared by", "Reviewed by", "Approved by"] &&
+               data.timestamp is number;
+      }
+      allow get, list: if isSignedIn() && isValidId(engagementId) && 
+                       (request.auth.uid in get(/databases/$(database)/documents/engagements/$(engagementId)).data.memberIds || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"]);
+      allow create: if isSignedIn() && isValidId(engagementId) && isValidId(signoffId) &&
+                    request.auth.uid == incoming().userId &&
+                    isValidSignOff(incoming()) && incoming().timestamp == request.time.toMillis() &&
+                    request.auth.uid in get(/databases/$(database)/documents/engagements/$(engagementId)).data.memberIds;
+      allow update: if false; // signoffs are immutable
+    }
+
+    match /engagements/{engagementId}/movs/{movId} {
+      function isValidMovDocument(data) {
+        return data.keys().hasAll(['documentName', 'auditorLink', 'auditeeResponse1', 'auditeeResponse2', 'auditeeResponse3', 'status', 'createdBy', 'createdAt', 'updatedAt']) && data.keys().size() == 9 &&
+               data.documentName is string && data.documentName.size() <= 500 &&
+               data.auditorLink is string && data.auditorLink.size() <= 2000 &&
+               data.auditeeResponse1 is string && data.auditeeResponse1.size() <= 500 &&
+               data.auditeeResponse2 is string && data.auditeeResponse2.size() <= 500 &&
+               data.auditeeResponse3 is string && data.auditeeResponse3.size() <= 500 &&
+               data.status is string && data.status.size() <= 100 &&
+               data.createdBy is string && data.createdBy.size() <= 128 &&
+               data.createdAt is number && data.updatedAt is number;
+      }
+      allow get, list: if isSignedIn() && isValidId(engagementId) && 
+                       (request.auth.uid in get(/databases/$(database)/documents/engagements/$(engagementId)).data.memberIds || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"]);
+      allow create: if isSignedIn() && isValidId(engagementId) && isValidId(movId) &&
+                    request.auth.uid == incoming().createdBy &&
+                    isValidMovDocument(incoming()) && incoming().createdAt == request.time.toMillis() && incoming().updatedAt == request.time.toMillis() &&
+                    // Only auditors/TL can create
+                    get(/databases/$(database)/documents/engagements/$(engagementId)/members/$(request.auth.uid)).data.engagementRole in ["Team Leader", "ATL", "Auditor", "Director", "Division Chief"];
+      allow update: if isSignedIn() && isValidId(engagementId) && isValidId(movId) && 
+                    isValidMovDocument(incoming()) && incoming().updatedAt == request.time.toMillis() && incoming().createdAt == existing().createdAt &&
+                    (
+                      // Auditee can update responses
+                      (get(/databases/$(database)/documents/engagements/$(engagementId)/members/$(request.auth.uid)).data.engagementRole == "Auditee" && 
+                       incoming().diff(existing()).affectedKeys().hasOnly(['auditeeResponse1', 'auditeeResponse2', 'auditeeResponse3', 'status', 'updatedAt']))
+                      ||
+                      // Auditors can update link and document name
+                      (get(/databases/$(database)/documents/engagements/$(engagementId)/members/$(request.auth.uid)).data.engagementRole in ["Team Leader", "ATL", "Auditor", "Director", "Division Chief"] &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['documentName', 'auditorLink', 'status', 'updatedAt']))
+                    );
+    }
+  }
+}
