@@ -17,7 +17,7 @@ export default function TeamManager({ engagement }: { engagement: any }) {
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, `engagements/${engagement.id}/members`), async snap => {
-      const mems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const mems = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
       setMembers(mems);
       
       const names: Record<string, string> = {};

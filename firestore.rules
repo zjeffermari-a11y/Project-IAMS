@@ -3,6 +3,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} { allow read, write: if false; }
 
+    function isAuth() { return request.auth != null; }
     function isSignedIn() { return request.auth != null && request.auth.token.email_verified == true; }
     function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
     function incoming() { return request.resource.data; }
@@ -18,11 +19,11 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId &&
+      allow get, list: if isAuth(); // allowed so new users can be read before verification
+      allow create: if isAuth() && isValidId(userId) && request.auth.uid == userId &&
                     isValidUser(incoming()) && incoming().roleVerified == false &&
                     incoming().createdAt == request.time.toMillis() && incoming().updatedAt == request.time.toMillis();
-      allow update: if isSignedIn() && isValidId(userId) && isValidUser(incoming()) && 
+      allow update: if isAuth() && isValidId(userId) && isValidUser(incoming()) && 
                     (
                       (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedAt']) && incoming().updatedAt == request.time.toMillis())
                       ||
