@@ -21,14 +21,13 @@ service cloud.firestore {
     match /users/{userId} {
       allow get, list: if isAuth(); // allowed so new users can be read before verification
       allow create: if isAuth() && isValidId(userId) && request.auth.uid == userId &&
-                    isValidUser(incoming()) && incoming().roleVerified == false &&
-                    incoming().createdAt == request.time.toMillis() && incoming().updatedAt == request.time.toMillis();
+                    isValidUser(incoming()) && incoming().roleVerified == false;
       allow update: if isAuth() && isValidId(userId) && isValidUser(incoming()) && 
                     (
-                      (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedAt']) && incoming().updatedAt == request.time.toMillis())
+                      (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedAt']))
                       ||
                       (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"] && 
-                       incoming().diff(existing()).affectedKeys().hasOnly(['role', 'roleVerified', 'updatedAt']) && incoming().updatedAt == request.time.toMillis())
+                       incoming().diff(existing()).affectedKeys().hasOnly(['role', 'roleVerified', 'updatedAt']))
                     );
     }
 
@@ -56,10 +55,10 @@ service cloud.firestore {
                   (request.auth.uid in resource.data.memberIds); // Directors will have to list all by adding their ID to memberIds initially, or we do a role check? But allow list can't use get(). We'll add Directors to memberIds when created.
       allow create: if isSignedIn() && isValidId(engagementId) && 
                     get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"] &&
-                    isValidEngagement(incoming()) && incoming().createdAt == request.time.toMillis() && incoming().updatedAt == request.time.toMillis() &&
+                    isValidEngagement(incoming()) &&
                     request.auth.uid in incoming().memberIds && 
                     incoming().teamLeaderId in incoming().memberIds;
-      allow update: if isSignedIn() && isValidId(engagementId) && isValidEngagement(incoming()) && incoming().updatedAt == request.time.toMillis() && incoming().createdAt == existing().createdAt &&
+      allow update: if isSignedIn() && isValidId(engagementId) && isValidEngagement(incoming()) && incoming().createdAt == existing().createdAt &&
                     (
                       (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"] && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt', 'memberIds'])) ||
                       (request.auth.uid == existing().teamLeaderId && incoming().diff(existing()).affectedKeys().hasOnly(['memberIds', 'status', 'flowchartUrl', 'feedbackSurveyUrl', 'updatedAt']))
@@ -76,7 +75,7 @@ service cloud.firestore {
       allow get, list: if isSignedIn() && isValidId(engagementId) && 
                        (request.auth.uid in get(/databases/$(database)/documents/engagements/$(engagementId)).data.memberIds || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"]);
       allow create: if isSignedIn() && isValidId(engagementId) && isValidId(memberId) && memberId == incoming().userId &&
-                    isValidMember(incoming()) && incoming().createdAt == request.time.toMillis() &&
+                    isValidMember(incoming()) &&
                     (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"] || request.auth.uid == get(/databases/$(database)/documents/engagements/$(engagementId)).data.teamLeaderId);
       allow update: if false; // immutable role inside engagement, delete and recreate if needed
       allow delete: if isSignedIn() && isValidId(engagementId) && isValidId(memberId) &&
@@ -98,10 +97,10 @@ service cloud.firestore {
                        (request.auth.uid in get(/databases/$(database)/documents/engagements/$(engagementId)).data.memberIds || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"]);
       allow create: if isSignedIn() && isValidId(engagementId) && isValidId(rowId) &&
                     request.auth.uid == incoming().createdBy &&
-                    isValidAwpRow(incoming()) && incoming().createdAt == request.time.toMillis() && incoming().updatedAt == request.time.toMillis() &&
+                    isValidAwpRow(incoming()) &&
                     // Only auditors/TL can create
                     get(/databases/$(database)/documents/engagements/$(engagementId)/members/$(request.auth.uid)).data.engagementRole in ["Team Leader", "ATL", "Auditor", "Director", "Division Chief"];
-      allow update: if isSignedIn() && isValidId(engagementId) && isValidId(rowId) && isValidAwpRow(incoming()) && incoming().updatedAt == request.time.toMillis() && incoming().createdAt == existing().createdAt &&
+      allow update: if isSignedIn() && isValidId(engagementId) && isValidId(rowId) && isValidAwpRow(incoming()) && incoming().createdAt == existing().createdAt &&
                     get(/databases/$(database)/documents/engagements/$(engagementId)/members/$(request.auth.uid)).data.engagementRole in ["Team Leader", "ATL", "Auditor", "Director", "Division Chief"] &&
                     incoming().diff(existing()).affectedKeys().hasOnly(['section', 'objective', 'procedure', 'reference', 'status', 'updatedAt']);
     }
@@ -119,7 +118,7 @@ service cloud.firestore {
                        (request.auth.uid in get(/databases/$(database)/documents/engagements/$(engagementId)).data.memberIds || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"]);
       allow create: if isSignedIn() && isValidId(engagementId) && isValidId(signoffId) &&
                     request.auth.uid == incoming().userId &&
-                    isValidSignOff(incoming()) && incoming().timestamp == request.time.toMillis() &&
+                    isValidSignOff(incoming()) &&
                     request.auth.uid in get(/databases/$(database)/documents/engagements/$(engagementId)).data.memberIds;
       allow update: if false; // signoffs are immutable
     }
@@ -140,11 +139,11 @@ service cloud.firestore {
                        (request.auth.uid in get(/databases/$(database)/documents/engagements/$(engagementId)).data.memberIds || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["Director", "Division Chief"]);
       allow create: if isSignedIn() && isValidId(engagementId) && isValidId(movId) &&
                     request.auth.uid == incoming().createdBy &&
-                    isValidMovDocument(incoming()) && incoming().createdAt == request.time.toMillis() && incoming().updatedAt == request.time.toMillis() &&
+                    isValidMovDocument(incoming()) &&
                     // Only auditors/TL can create
                     get(/databases/$(database)/documents/engagements/$(engagementId)/members/$(request.auth.uid)).data.engagementRole in ["Team Leader", "ATL", "Auditor", "Director", "Division Chief"];
       allow update: if isSignedIn() && isValidId(engagementId) && isValidId(movId) && 
-                    isValidMovDocument(incoming()) && incoming().updatedAt == request.time.toMillis() && incoming().createdAt == existing().createdAt &&
+                    isValidMovDocument(incoming()) && incoming().createdAt == existing().createdAt &&
                     (
                       // Auditee can update responses
                       (get(/databases/$(database)/documents/engagements/$(engagementId)/members/$(request.auth.uid)).data.engagementRole == "Auditee" && 
